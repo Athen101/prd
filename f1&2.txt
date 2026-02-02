@@ -1,0 +1,361 @@
+
+* ✅ **Maven included (lab requirement)**
+* ✅ **Manager + Worker Docker Swarm**
+* ✅ **Deployment OUTSIDE Jenkins pipeline**
+* ✅ **Manual pipeline first**
+* ✅ **Then ONLY differences for cron-based pipeline**
+* ✅ **Clean, exam-ready steps**
+
+
+# **Maven + Flask + Docker Swarm**
+
+## **Manual / On-Demand Jenkins Pipeline**
+
+---
+
+## **1️⃣ Environment Assumptions**
+
+* Host OS: **Ubuntu**
+* Two machines / VMs:
+
+  * **Manager node**
+  * **Worker node**
+* Tools:
+
+  * Git
+  * Python3 + pip
+  * Maven
+  * Docker
+  * Jenkins
+  * Docker Swarm
+
+---
+
+## **2️⃣ Install Required Tools**
+
+### 🔹 On BOTH Manager & Worker nodes
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-pip maven docker.io
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+### 🔹 Jenkins (ONLY on Manager node)
+
+```bash
+sudo apt install -y jenkins
+sudo systemctl start jenkins
+sudo systemctl enable jenkins
+```
+
+Login to Docker Hub (manager):
+
+```bash
+docker login
+```
+
+---
+
+## **3️⃣ Create Flask Application (Simple, Manual)**
+
+```bash
+mkdir flask-app
+cd flask-app
+```
+
+### `app.py`
+
+```python
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Flask app running on Docker Swarm"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+```
+
+### `requirements.txt`
+
+```
+flask
+```
+
+---
+
+## **4️⃣ Add Maven (Lab Requirement)**
+
+Maven is used **only to manage the build step**, not to replace Flask.
+
+Create `pom.xml`:
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>flask-app</artifactId>
+  <version>1.0</version>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.0</version>
+        <configuration>
+          <executable>pip3</executable>
+          <arguments>
+            <argument>install</argument>
+            <argument>-r</argument>
+            <argument>requirements.txt</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+```
+
+---
+
+## **5️⃣ Dockerfile (Flask App)**
+
+```dockerfile
+FROM python:3.10-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+EXPOSE 5000
+CMD ["python","app.py"]
+```
+
+---
+
+## **6️⃣ Push Code to GitHub**
+
+```bash
+git init
+git add .
+git commit -m "Flask app with Maven and Docker"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/flask-app.git
+git push -u origin main
+```
+
+---
+
+## **7️⃣ Docker Swarm Setup (Manager + Worker)**
+
+### 🔹 On Manager Node
+
+```bash
+docker swarm init --advertise-addr <MANAGER_IP>
+```
+
+Docker outputs a join command.
+
+---
+
+### 🔹 On Worker Node
+
+```bash
+docker swarm join --token SWMTKN-xxxx <MANAGER_IP>:2377
+```
+
+---
+
+### 🔹 Verify on Manager
+
+```bash
+docker node ls
+```
+
+You should see:
+
+* Manager (Leader)
+* Worker (Ready)
+
+---
+
+## **8️⃣ Jenkins Pipeline (Manual / On-Demand)**
+
+👉 **No cron trigger**
+👉 **No Swarm deployment**
+
+```groovy
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/flask-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/YOUR_USERNAME/flask-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean install'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+  }
+}
+```
+
+Trigger this pipeline **manually** from Jenkins.
+
+---
+
+## **9️⃣ Docker Swarm Deployment (OUTSIDE PIPELINE)**
+
+⚠️ Run **ONLY on Manager node terminal**
+
+```bash
+docker service create \
+--name flask-app \
+--replicas 2 \
+-p 5000:5000 \
+dockerhubusername/flask-app:1.0
+```
+
+Check status:
+
+```bash
+docker service ls
+docker service ps flask-app
+```
+
+Swarm distributes containers across **manager + worker nodes**.
+
+---
+
+## **🔟 Explanation of Manual Pipeline Stages**
+
+| Stage        | Explanation                         |
+| ------------ | ----------------------------------- |
+| Checkout     | Pulls Flask source code from GitHub |
+| Maven Build  | Installs Python dependencies        |
+| Docker Build | Creates Flask Docker image          |
+| Push         | Pushes image to Docker Hub          |
+| Deployment   | Performed manually via Docker Swarm |
+
+---
+
+# **PART B — Cron-Based Automated Pipeline**
+
+## (What changes from Part A)
+
+---
+
+### ❌ What remains the SAME
+
+* Flask application
+* Maven usage
+* Dockerfile
+* Docker Swarm (manager + worker)
+* Deployment **outside Jenkins**
+
+---
+
+### ✅ What CHANGES
+
+### 1️⃣ Add cron trigger in Jenkinsfile
+
+```groovy
+triggers {
+  cron('H/5 * * * *')
+}
+```
+
+---
+
+### 2️⃣ Final Jenkinsfile (Cron-Based)
+
+```groovy
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/flask-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  triggers {
+    cron('H/5 * * * *')
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/YOUR_USERNAME/flask-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean install'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+  }
+}
+```
+
+---
+
+## **🔁 Difference Summary (Very Important for Exam)**
+
+| Manual Pipeline     | Cron-Based Pipeline     |
+| ------------------- | ----------------------- |
+| Triggered manually  | Triggered automatically |
+| On-demand execution | Scheduled execution     |
+| Same build stages   | Same build stages       |
+| Manual Swarm deploy | Manual Swarm deploy     |
+
+---
+
+## **✅ 
+
+```
+GitHub → Jenkins → Maven → Docker Image → Docker Hub → Docker Swarm (Manager + Worker)
+```
+
+> Jenkins performs CI, Maven handles build automation, Docker containerizes the Flask application, and Docker Swarm manages orchestration outside the pipeline.
+
