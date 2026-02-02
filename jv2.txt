@@ -1,4 +1,4 @@
-Ah! Got it — this time we will make it **exactly as you want**:
+
 
 * Jenkins pipeline: **build Maven app → build Docker image → push to Docker Hub**
 * **No deployment in pipeline**
