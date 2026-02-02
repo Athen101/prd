@@ -1,4 +1,5 @@
 
+3&4
 * **3️⃣ Manual / On-demand Pipeline**
 * **4️⃣ Cron-based Automated Pipeline**
 * Same app, same Docker image, same Kubernetes
@@ -426,6 +427,16 @@ pipeline {
 > In the manual pipeline, Jenkins is triggered on demand, whereas in the cron-based pipeline, Jenkins automatically triggers the CI/CD process at scheduled intervals while executing the same build, containerization, and Kubernetes deployment stages.
 
 ---
+creates:
+kubectl apply -f deployment.yaml
+verify:
+kubectl get deployments
+kubectl get pods
+kubectl get svc
+minikube service java-app
+
+kubectl apply -f service.yaml
+
 
 If you want next:
 
