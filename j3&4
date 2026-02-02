@@ -1,0 +1,434 @@
+
+* **3️⃣ Manual / On-demand Pipeline**
+* **4️⃣ Cron-based Automated Pipeline**
+* Same app, same Docker image, same Kubernetes
+* Only **trigger mechanism changes**
+
+We assume **Ubuntu host + Minikube** ✅
+
+---
+
+# ✅ 3. Maven + Java + Kubernetes
+
+## (Manual / On-demand Jenkins Pipeline)
+
+---
+
+## 🔹 Architecture Flow (memorize this)
+
+```
+GitHub → Jenkins → Maven → Docker Image → Docker Hub → Kubernetes (Minikube)
+```
+
+---
+
+## 1️⃣ Environment Assumption
+
+* OS: Ubuntu
+* Tools installed:
+
+  * Git
+  * Java 21
+  * Maven
+  * Docker
+  * Jenkins
+  * Minikube
+  * kubectl
+
+---
+
+## 2️⃣ Install Required Tools (Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install -y git openjdk-21-jdk maven docker.io jenkins
+sudo usermod -aG docker $USER
+newgrp docker
+
+sudo systemctl start jenkins
+sudo systemctl enable jenkins
+```
+
+Install Minikube & kubectl (already known by you).
+
+---
+
+## 3️⃣ Create Maven Java Application (Spring Boot – HTTP)
+
+### Project structure
+
+```
+java-app/
+ ├── pom.xml
+ ├── Dockerfile
+ ├── Jenkinsfile
+ └── src/main/java/com/example/App.java
+```
+
+---
+
+### `pom.xml`
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>java-app</artifactId>
+  <version>1.0</version>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.2.1</version>
+  </parent>
+
+  <properties>
+    <java.version>21</java.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+```
+
+---
+
+### `App.java`
+
+```java
+package com.example;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@SpringBootApplication
+@RestController
+public class App {
+
+    public static void main(String[] args) {
+        SpringApplication.run(App.class, args);
+    }
+
+    @GetMapping("/")
+    public String home() {
+        return "Java App running on Kubernetes";
+    }
+}
+```
+
+---
+
+## 4️⃣ Dockerfile
+
+```dockerfile
+FROM eclipse-temurin:21-jdk
+WORKDIR /app
+COPY target/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java","-jar","app.jar"]
+```
+
+---
+
+## 5️⃣ Push Code to GitHub
+
+```bash
+git init
+git add .
+git commit -m "Maven Java Kubernetes app"
+git branch -M main
+git remote add origin https://github.com/USERNAME/java-app.git
+git push -u origin main
+```
+
+---
+
+## 6️⃣ Kubernetes YAML Files
+
+### `deployment.yaml`
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: java-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: java-app
+  template:
+    metadata:
+      labels:
+        app: java-app
+    spec:
+      containers:
+      - name: java-app
+        image: dockerhubusername/java-app:1.0
+        ports:
+        - containerPort: 8080
+```
+
+---
+
+### `service.yaml`
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: java-app
+spec:
+  type: NodePort
+  selector:
+    app: java-app
+  ports:
+    - port: 8080
+      targetPort: 8080
+```
+
+---
+
+## 7️⃣ Jenkins Pipeline (Manual Trigger)
+
+### `Jenkinsfile`
+
+```groovy
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/java-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/USERNAME/java-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean package'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push Docker Image') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        sh '''
+          kubectl apply -f deployment.yaml
+          kubectl apply -f service.yaml
+        '''
+      }
+    }
+  }
+}
+```
+``````````````````
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "adisree/java-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git branch: 'main', url: 'https://github.com/Adithya02-alt/jj34.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean package'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh '''
+            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+            docker push $IMAGE_NAME:$IMAGE_TAG
+          '''
+        }
+      }
+    }
+  }
+}
+```````````````````````````````````````````````````````````````
+👉 Triggered using **“Build Now”**
+
+---
+
+## 8️⃣ Verify Deployment
+
+```bash
+kubectl get pods
+kubectl get svc
+minikube service java-app
+```
+
+---
+
+## 9️⃣ Pipeline Stage Explanation (Manual)
+
+| Stage        | Explanation                 |
+| ------------ | --------------------------- |
+| Checkout     | Pulls code from GitHub      |
+| Maven Build  | Builds Spring Boot JAR      |
+| Docker Build | Creates Docker image        |
+| Push         | Uploads image to Docker Hub |
+| Deploy       | Deploys app to Kubernetes   |
+
+---
+
+# ✅ 4. Maven + Java + Kubernetes
+
+## (Cron-based Automated Pipeline)
+
+---
+
+## 🔹 What stays the SAME
+
+* Java application
+* Dockerfile
+* Kubernetes YAML
+* Docker Hub
+* All pipeline stages
+
+---
+
+## 🔹 What CHANGES
+
+✅ **Only the trigger mechanism**
+
+---
+
+## 1️⃣ Add Cron Trigger to Jenkinsfile
+
+```groovy
+triggers {
+  cron('H/5 * * * *')
+}
+```
+
+---
+
+## 2️⃣ Final Jenkinsfile (Automated)
+
+```groovy
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/java-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  triggers {
+    cron('H/5 * * * *')
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/USERNAME/java-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean package'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push Docker Image') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        sh '''
+          kubectl apply -f deployment.yaml
+          kubectl apply -f service.yaml
+        '''
+      }
+    }
+  }
+}
+```
+
+---
+
+## 🔁 Difference Summary (Exam Gold)
+
+| Manual Pipeline    | Cron-Based Pipeline     |
+| ------------------ | ----------------------- |
+| Triggered manually | Triggered automatically |
+| Build Now          | Scheduled execution     |
+| Same stages        | Same stages             |
+| Human action       | Fully automated         |
+
+---
+
+## 🧠 Final Viva One-liner
+
+> In the manual pipeline, Jenkins is triggered on demand, whereas in the cron-based pipeline, Jenkins automatically triggers the CI/CD process at scheduled intervals while executing the same build, containerization, and Kubernetes deployment stages.
+
+---
+
+If you want next:
+
+* **Exact diagram to draw in exam**
+* **Common Kubernetes/Jenkins viva questions**
+* **Mistakes examiners look for (and how to answer them)**
