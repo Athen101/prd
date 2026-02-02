@@ -140,6 +140,46 @@ public class AppTest {
 mvn clean package
 java -cp target/java-app-1.0-SNAPSHOT.jar com.example.App
 
+deployement.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: java-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: java-app
+  template:
+    metadata:
+      labels:
+        app: java-app
+    spec:
+      containers:
+      - name: java-app
+        image: java-app:1.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+
+service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: java-app-service
+spec:
+  type: NodePort
+  selector:
+    app: java-app
+  ports:
+    - port: 8080
+      targetPort: 8080
+
+
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+
+
 mvn clean package
 
 Build JAR:
