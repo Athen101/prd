@@ -137,6 +137,7 @@ public class AppTest {
     }
 }
 
+mvn clean package
 java -cp target/java-app-1.0-SNAPSHOT.jar com.example.App
 
 mvn clean package
@@ -144,7 +145,7 @@ mvn clean package
 Build JAR:
 
 ```bash
-mvn clean package
+
 ```
 
 ---
@@ -164,6 +165,8 @@ ENTRYPOINT ["java","-jar","app.jar"]
 ## **7️⃣ Push Code to GitHub**
 
 ```bash
+git config --global user.name="Adithya02-alt"
+git config --global user.email="adithyasreeiv02@gmail.com"
 git init
 git add .
 git commit -m "Java Maven app"
