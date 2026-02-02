@@ -153,7 +153,7 @@ Build JAR:
 ## **6️⃣ Dockerfile (Java App)**
 
 ```dockerfile
-FROM openjdk:21-jdk-slim
+FROM eclipse-temurin:21-jdk
 WORKDIR /app
 COPY target/*.jar app.jar
 EXPOSE 8080
@@ -187,7 +187,7 @@ pipeline {
   agent any
 
   environment {
-    IMAGE_NAME = "dockerhubusername/java-app"
+    IMAGE_NAME = "adisree/java-app"
     IMAGE_TAG  = "1.0"
   }
 
@@ -195,7 +195,7 @@ pipeline {
 
     stage('Checkout') {
       steps {
-        git 'https://github.com/YOUR_USERNAME/java-app.git'
+        git branch: 'main', url: 'https://github.com/Adithya02-alt/jj34.git'
       }
     }
 
@@ -213,7 +213,12 @@ pipeline {
 
     stage('Push to Docker Hub') {
       steps {
-        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+        withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh '''
+            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+            docker push $IMAGE_NAME:$IMAGE_TAG
+          '''
+        }
       }
     }
   }
