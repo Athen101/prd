@@ -1,14 +1,13 @@
+Maven + Node + Docker Swarm**
+Manual / On-Demand Pipeline**
 
-
-# PART A — Maven + Node + Docker Swarm
-
-## (Manual / On-Demand Jenkins Pipeline)
-
----
-
-## 1️⃣ Environment Assumption
+Environment Assumptions**
 
 * Host OS: **Ubuntu**
+* Two Ubuntu machines / VMs:
+
+  * **Manager node**
+  * **Worker node**
 * Tools:
 
   * Git
@@ -16,39 +15,52 @@
   * Maven
   * Docker
   * Jenkins
-  * Docker Swarm (manual)
+  * Docker Swarm
 
 ---
 
-## 2️⃣ Install Required Tools (Ubuntu Host)
+## **2️⃣ Install Required Tools (On BOTH nodes)**
 
+```bash
 sudo apt update
-sudo apt install -y git maven docker.io jenkins nodejs npm
+sudo apt install -y git nodejs npm maven docker.io
 sudo usermod -aG docker $USER
 newgrp docker
+```
+
+### Jenkins (ONLY on Manager node)
+
+```bash
+sudo apt install -y jenkins
 sudo systemctl start jenkins
 sudo systemctl enable jenkins
+```
+
+Login to Docker Hub (manager node):
+
+```bash
 docker login
+```
 
+---
 
-## 3️⃣ Create Node Application (WITHOUT npx)
+## **3️⃣ Create Node Application (WITHOUT npx)**
 
-
+```bash
 mkdir node-app
 cd node-app
 npm init -y
-
-Install a simple server (example: Express):
-
 npm install express
+```
 
-Create `index.js`:
+### `index.js`
 
+```js
 const express = require('express');
 const app = express();
 
 app.get('/', (req, res) => {
-  res.send('Node app running in Docker Swarm');
+  res.send('Node app running on Docker Swarm');
 });
 
 app.listen(3000, () => {
@@ -56,17 +68,22 @@ app.listen(3000, () => {
 });
 ```
 
-Update `package.json`:
+### Update `package.json`
 
+```json
 "scripts": {
   "start": "node index.js"
 }
+```
 
+---
 
-## 4️⃣ Add Maven Wrapper (For Lab Requirement)
+## **4️⃣ Add Maven (Lab Requirement)**
 
-Create `pom.xml` (used only to run Node build):
+Create `pom.xml`
+(Maven is used to **trigger Node dependency installation**)
 
+```xml
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
 
@@ -80,13 +97,6 @@ Create `pom.xml` (used only to run Node build):
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
         <version>3.1.0</version>
-        <executions>
-          <execution>
-            <goals>
-              <goal>exec</goal>
-            </goals>
-          </execution>
-        </executions>
         <configuration>
           <executable>npm</executable>
           <arguments>
@@ -97,9 +107,7 @@ Create `pom.xml` (used only to run Node build):
     </plugins>
   </build>
 </project>
-```
-
-## 5️⃣ Dockerfile (Node App)
+ Dockerfile (Node App)**
 
 FROM node:18-alpine
 WORKDIR /app
@@ -109,9 +117,7 @@ COPY . .
 EXPOSE 3000
 CMD ["npm","start"]
 
----
-
-## 6️⃣ Push Code to GitHub
+Push Code to GitHub**
 
 git init
 git add .
@@ -120,14 +126,26 @@ git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/node-app.git
 git push -u origin main
 
-## 7️⃣ Docker Swarm Setup (Manual – Outside Pipeline)
+Docker Swarm Setup (Manager + Worker)**
+On Manager Node
 
-docker swarm init
+docker swarm init --advertise-addr <MANAGER_IP>
+
+You will get a join command like:
+
+docker swarm join --token SWMTKN-xxx <MANAGER_IP>:2377
+On Worker Node
+
+docker swarm join --token SWMTKN-xxx <MANAGER_IP>:2377
+
+
+### 🔹 Verify on Manager
 docker node ls
 
-(Worker nodes optional for lab explanation)
 
-## 8️⃣ Jenkins Pipeline (Manual / On-Demand)
+You should see **manager + worker**.
+
+Jenkins Pipeline (Manual / On-Demand)**
 
 pipeline {
   agent any
@@ -165,51 +183,48 @@ pipeline {
   }
 }
 
-## 9️⃣ Manual Docker Swarm Deployment (Very Simple)
 
-Type **on Ubuntu terminal (manager node)**:
+Run this **manually** in Jenkins.
+
+Docker Swarm Deployment (OUTSIDE PIPELINE)**
+ Run **ONLY on Manager node terminal**
 
 docker service create \
 --name node-app \
--p 3000:3000 \
 --replicas 2 \
+-p 3000:3000 \
 dockerhubusername/node-app:1.0
+
 
 Check:
 
 docker service ls
 docker service ps node-app
 
-## 🔟 Explain Pipeline (Manual Version)
+Swarm automatically distributes containers across **manager and worker**.
 
-| Stage        | Explanation                    |
-| ------------ | ------------------------------ |
-| Checkout     | Pulls Node application code    |
-| Maven Build  | Runs npm install via Maven     |
-| Docker Build | Creates Node Docker image      |
-| Push         | Uploads image to Docker Hub    |
-| Deployment   | Done manually via Docker Swarm |
+## **🔟 Explanation of Pipeline Stages (Manual)**
 
----
+| Stage        | Explanation                      |
+| ------------ | -------------------------------- |
+| Checkout     | Pulls Node app code from GitHub  |
+| Maven Build  | Runs npm install using Maven     |
+| Docker Build | Creates Docker image             |
+| Push         | Pushes image to Docker Hub       |
+| Deployment   | Done manually using Docker Swarm |
 
----
-
-# PART B — Cron-Based Automated Pipeline
-
+# **PART B — Cron-Based Automated Pipeline**
 (What changes from Part A)
 
-### ❌ What stays the SAME
 
 * Node app
 * Maven usage
 * Dockerfile
-* Docker Swarm deployment **outside pipeline**
+* Docker Swarm (manager + worker)
+* Deployment **outside pipeline**
 
----
 
-### ✅ What CHANGES
-
-### 1️⃣ Add Jenkins cron trigger
+### 1️⃣ Add cron trigger in Jenkinsfile
 
 triggers {
   cron('H/5 * * * *')
@@ -217,6 +232,7 @@ triggers {
 
 ### 2️⃣ Final Jenkinsfile (Cron-Based)
 
+```groovy
 pipeline {
   agent any
 
@@ -257,15 +273,22 @@ pipeline {
   }
 }
 
-
-## 🔁 Difference Summary (For Viva / Exam)
+## **🔁 Difference Summary (Exam-Friendly)**
 
 | Manual Pipeline     | Cron-Based Pipeline     |
 | ------------------- | ----------------------- |
 | Triggered manually  | Triggered automatically |
-| On-demand execution | Scheduled execution     |
+| User clicks Build   | Runs on schedule        |
 | Same build stages   | Same build stages       |
 | Manual Swarm deploy | Manual Swarm deploy     |
 
-GitHub → Jenkins → Maven → Docker Image → Docker Hub → Docker Swarm (Manual)
+---
+
+## 
+
+```
+GitHub → Jenkins → Maven → Docker Image → Docker Hub → Docker Swarm (Manager + Worker)
+```
+
+> Jenkins handles CI, Docker Swarm handles container orchestration, and deployment is performed manually from the manager node.
 
