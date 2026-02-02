@@ -1,0 +1,148 @@
+Ah! Got it — this time we will make it **exactly as you want**:
+
+* Jenkins pipeline: **build Maven app → build Docker image → push to Docker Hub**
+* **No deployment in pipeline**
+* Docker Swarm deployment is **manual**
+Ubuntu Host — Java + Maven + Docker Swarm (Cron-based Pipeline, Build & Push Only)
+
+## **STEP 0 — Install Prerequisites**
+
+sudo apt update
+sudo apt install -y git maven openjdk-21-jdk docker.io jenkins
+sudo usermod -aG docker $USER
+newgrp docker
+sudo systemctl start jenkins
+sudo systemctl enable jenkins
+docker login  # your Docker Hub credentials
+
+STEP 1 — Create Maven Java App**
+
+mvn archetype:generate \
+  -DgroupId=com.example \
+  -DartifactId=java-app \
+  -DarchetypeArtifactId=maven-archetype-quickstart \
+  -DinteractiveMode=false
+cd java-app
+*Directory structure:**
+
+java-app/
+ ├── src/main/java/...
+ ├── pom.xml
+ └── Dockerfile
+
+STEP 2 — Dockerfile**
+
+```dockerfile
+FROM openjdk:21-jdk-slim
+WORKDIR /app
+COPY target/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java","-jar","app.jar"]
+
+TEP 3 — Push Project to GitHub**
+
+git init
+git add .
+git commit -m "Initial commit"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/java-app.git
+git push -u origin main
+
+STEP 4 — Docker Swarm Setup (Manual)**
+
+On Manager Node:
+
+docker swarm init --advertise-addr $(hostname -I | awk '{print $1}')
+
+### On Worker Node (if available):
+
+docker swarm join --token <TOKEN> <MANAGER_IP>:2377
+Verify Cluster:
+
+docker node ls
+STEP 5 — Jenkins Pipeline (Cron-based, Build & Push Only)**
+
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "dockerhubusername/java-app"
+        IMAGE_TAG  = "1.0"
+    }
+
+    triggers {
+        cron('H/5 * * * *') // Runs every 5 minutes
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                git 'https://github.com/YOUR_USERNAME/java-app.git'
+            }
+        }
+
+        stage('Build with Maven') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+            }
+        }
+    }
+}
+
+> Replace:
+>
+> * `dockerhubusername` → your Docker Hub username
+> * `YOUR_USERNAME` → your GitHub username
+
+STEP 6 — Manual Deployment to Swarm**
+
+After Jenkins pushes the image, deploy manually on Swarm:
+
+# Create service
+docker service create \
+  --name java-app \
+  --replicas 3 \
+  -p 8080:8080 \
+  dockerhubusername/java-app:1.0
+
+# Update service (later)
+docker service update \
+  --image dockerhubusername/java-app:1.0 \
+  java-app
+
+# Check status
+docker service ls
+docker service ps java-app
+
+STEP 7 — Explanation of Automated Pipeline**
+
+| Stage              | Description                            |
+| ------------------ | -------------------------------------- |
+| Checkout           | Pull latest code from GitHub           |
+| Build with Maven   | Compiles Java app and generates `.jar` |
+| Build Docker Image | Packages app into Docker image         |
+| Push to Docker Hub | Pushes container image for deployment  |
+| Cron Trigger       | Automates build every 5 minutes        |
+
+> Deployment to Docker Swarm is **manual** to separate CI and CD.
+Notes / Best Practices**
+
+* Always do `docker login` on Jenkins host
+* Use **environment variables** for maintainability
+* Cron frequency can be adjusted based on lab requirement
+* Single-node Swarm works for practice; add worker nodes in lab
+
+
