@@ -1,0 +1,271 @@
+
+
+# PART A — Maven + Node + Docker Swarm
+
+## (Manual / On-Demand Jenkins Pipeline)
+
+---
+
+## 1️⃣ Environment Assumption
+
+* Host OS: **Ubuntu**
+* Tools:
+
+  * Git
+  * Node.js + npm
+  * Maven
+  * Docker
+  * Jenkins
+  * Docker Swarm (manual)
+
+---
+
+## 2️⃣ Install Required Tools (Ubuntu Host)
+
+sudo apt update
+sudo apt install -y git maven docker.io jenkins nodejs npm
+sudo usermod -aG docker $USER
+newgrp docker
+sudo systemctl start jenkins
+sudo systemctl enable jenkins
+docker login
+
+
+## 3️⃣ Create Node Application (WITHOUT npx)
+
+
+mkdir node-app
+cd node-app
+npm init -y
+
+Install a simple server (example: Express):
+
+npm install express
+
+Create `index.js`:
+
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => {
+  res.send('Node app running in Docker Swarm');
+});
+
+app.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
+```
+
+Update `package.json`:
+
+"scripts": {
+  "start": "node index.js"
+}
+
+
+## 4️⃣ Add Maven Wrapper (For Lab Requirement)
+
+Create `pom.xml` (used only to run Node build):
+
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>node-app</artifactId>
+  <version>1.0</version>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <executable>npm</executable>
+          <arguments>
+            <argument>install</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+```
+
+## 5️⃣ Dockerfile (Node App)
+
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["npm","start"]
+
+---
+
+## 6️⃣ Push Code to GitHub
+
+git init
+git add .
+git commit -m "Node app with Maven and Docker"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/node-app.git
+git push -u origin main
+
+## 7️⃣ Docker Swarm Setup (Manual – Outside Pipeline)
+
+docker swarm init
+docker node ls
+
+(Worker nodes optional for lab explanation)
+
+## 8️⃣ Jenkins Pipeline (Manual / On-Demand)
+
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/node-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/YOUR_USERNAME/node-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean install'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+  }
+}
+
+## 9️⃣ Manual Docker Swarm Deployment (Very Simple)
+
+Type **on Ubuntu terminal (manager node)**:
+
+docker service create \
+--name node-app \
+-p 3000:3000 \
+--replicas 2 \
+dockerhubusername/node-app:1.0
+
+Check:
+
+docker service ls
+docker service ps node-app
+
+## 🔟 Explain Pipeline (Manual Version)
+
+| Stage        | Explanation                    |
+| ------------ | ------------------------------ |
+| Checkout     | Pulls Node application code    |
+| Maven Build  | Runs npm install via Maven     |
+| Docker Build | Creates Node Docker image      |
+| Push         | Uploads image to Docker Hub    |
+| Deployment   | Done manually via Docker Swarm |
+
+---
+
+---
+
+# PART B — Cron-Based Automated Pipeline
+
+(What changes from Part A)
+
+### ❌ What stays the SAME
+
+* Node app
+* Maven usage
+* Dockerfile
+* Docker Swarm deployment **outside pipeline**
+
+---
+
+### ✅ What CHANGES
+
+### 1️⃣ Add Jenkins cron trigger
+
+triggers {
+  cron('H/5 * * * *')
+}
+
+### 2️⃣ Final Jenkinsfile (Cron-Based)
+
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/node-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  triggers {
+    cron('H/5 * * * *')
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/YOUR_USERNAME/node-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean install'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+  }
+}
+
+
+## 🔁 Difference Summary (For Viva / Exam)
+
+| Manual Pipeline     | Cron-Based Pipeline     |
+| ------------------- | ----------------------- |
+| Triggered manually  | Triggered automatically |
+| On-demand execution | Scheduled execution     |
+| Same build stages   | Same build stages       |
+| Manual Swarm deploy | Manual Swarm deploy     |
+
+GitHub → Jenkins → Maven → Docker Image → Docker Hub → Docker Swarm (Manual)
+
