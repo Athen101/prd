@@ -1,0 +1,49 @@
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME   = "dockerhubusername/java-app"
+    IMAGE_TAG    = "1.0"
+    SERVICE_NAME = "java-app"
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/USERNAME/java-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean package'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+
+    stage('Deploy to Docker Swarm') {
+      steps {
+        sh '''
+          docker service update $SERVICE_NAME $IMAGE_NAME:$IMAGE_TAG || \
+          docker service create \
+            --name $SERVICE_NAME \
+            --replicas 3 \
+            -p 8080:8080 \
+            $IMAGE_NAME:$IMAGE_TAG
+        '''
+      }
+    }
+  }
+}
