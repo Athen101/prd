@@ -10,6 +10,14 @@
 PART A — Infrastructure Setup (ONE TIME)
 1)Install VirtualBox & Vagrant (Host machine)
 
+a. Add HashiCorp GPG key
+curl -fsSL https://apt.releases.hashicorp.com/gpg | \
+sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+b. Add HashiCorp repository
+echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+sudo tee /etc/apt/sources.list.d/hashicorp.list
+
 sudo apt update
 sudo apt install -y virtualbox vagrant
 
