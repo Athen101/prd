@@ -1,0 +1,344 @@
+
+* Ubuntu laptop (host)
+* VirtualBox + Vagrant
+* 1 manager + 2 workers
+* Jenkins runs on manager
+* Pipeline is manual / on-demand
+* All build + deploy actions happen via Jenkins pipeline code**
+
+---
+PART A — Infrastructure Setup (ONE TIME)
+1)Install VirtualBox & Vagrant (Host machine)
+
+sudo apt update
+sudo apt install -y virtualbox vagrant
+
+
+2)Create project directory
+
+mkdir swarm-ci-cd
+cd swarm-ci-cd
+
+3)Create `Vagrantfile`
+
+nano Vagrantfile
+ Paste this:
+
+Vagrant.configure("2") do |config|
+
+  config.vm.box = "ubuntu/jammy64"
+
+  def provision(vm)
+    vm.vm.provision "shell", inline: <<-SHELL
+      apt update
+      apt install -y docker.io git maven openjdk-21-jdk
+      systemctl start docker
+      systemctl enable docker
+      usermod -aG docker vagrant
+    SHELL
+  end
+
+  # Manager
+  config.vm.define "manager" do |m|
+    m.vm.hostname = "manager"
+    m.vm.network "private_network", ip: "192.168.56.10"
+    m.vm.provider "virtualbox" do |vb|
+      vb.memory = 2048
+      vb.cpus = 2
+    end
+    provision(m)
+  end
+
+  # Worker 1
+  config.vm.define "worker1" do |w|
+    w.vm.hostname = "worker1"
+    w.vm.network "private_network", ip: "192.168.56.11"
+    w.vm.provider "virtualbox" do |vb|
+      vb.memory = 1024
+      vb.cpus = 1
+    end
+    provision(w)
+  end
+
+  # Worker 2
+  config.vm.define "worker2" do |w|
+    w.vm.hostname = "worker2"
+    w.vm.network "private_network", ip: "192.168.56.12"
+    w.vm.provider "virtualbox" do |vb|
+      vb.memory = 1024
+      vb.cpus = 1
+    end
+    provision(w)
+  end
+end
+
+4)Start the VMs
+
+vagrant up
+if error
+then:
+____________________________________________
+Blacklist KVM modules
+sudo nano /etc/modprobe.d/blacklist-kvm.conf
+Add:
+
+blacklist kvm
+blacklist kvm_intel
+blacklist kvm_amd
+
+Save & exit.
+
+Update initramfs and reboot
+
+sudo update-initramfs -u
+sudo reboot
+
+After reboot:
+lsmod | grep kvm
+output: should show nothing
+____________________________________________
+
+5)Initialize Docker Swarm (Manager)
+
+vagrant ssh manager
+docker swarm init --advertise-addr 192.168.56.10
+
+Copy the worker join token
+
+6) Join Worker Nodes
+Worker 1
+
+vagrant ssh worker1
+docker swarm join --token <PASTE_TOKEN> 192.168.56.10:2377
+exit
+
+Worker 2
+
+vagrant ssh worker2
+docker swarm join --token <PASTE_TOKEN> 192.168.56.10:2377
+exit
+
+
+7)Verify Swarm
+
+vagrant ssh manager
+docker node ls
+
+You should see:
+
+* manager
+* worker1
+* worker2
+
+PART B — Jenkins Setup (Manager Node)
+
+8)Install Jenkins
+
+sudo apt install -y jenkins
+sudo usermod -aG docker jenkins
+sudo systemctl enable jenkins
+sudo systemctl start jenkins
+
+Unlock Jenkins:
+
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+
+Access:
+
+http://192.168.56.10:8080
+
+Install Suggested Plugins.
+
+
+9)Add Docker Hub Credentials (Jenkins UI)
+
+* Manage Jenkins → Credentials
+* Add **Username & Password**
+* ID: `dockerhub-creds`
+* Username: `<dockerhub-username>`
+* Password: `<dockerhub-password>`
+
+PART C — Application Setup (GitHub)
+
+10) Java Maven App Structure
+
+java-app/
+ ├── src/main/java/...
+ ├── pom.xml
+ ├── Dockerfile
+ └── Jenkinsfile
+-------------------------------------------------------------
+mvn archetype:generate \
+  -DgroupId=com.example \
+  -DartifactId=java-app \
+  -DarchetypeArtifactId=maven-archetype-quickstart \
+  -DinteractiveMode=false       does this just creates folder or 
+------------------------------------------------------------------
+`src/main/java/com/example/App.java`
+
+package com.example;
+
+public class App {
+    public static void main(String[] args) throws Exception {
+        System.out.println("Hello from CI/CD pipeline");
+
+        // keep app running (simple thread sleep)
+        while (true) {
+            Thread.sleep(5000);
+        }
+    }
+}
+
+pom.xml
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="
+           http://maven.apache.org/POM/4.0.0
+           http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>simple-app</artifactId>
+  <version>1.0</version>
+
+  <properties>
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
+  </properties>
+
+  <build>
+    <plugins>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.11.0</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.3.0</version>
+        <configuration>
+          <archive>
+            <manifest>
+              <mainClass>com.example.App</mainClass>
+            </manifest>
+          </archive>
+        </configuration>
+      </plugin>
+
+    </plugins>
+  </build>
+
+</project>
+
+
+
+## Dockerfile
+
+FROM openjdk:21-jdk-slim
+WORKDIR /app
+COPY target/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java","-jar","app.jar"]
+
+
+Jenkinsfile (PIPELINE CODE)
+
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/java-app"
+    IMAGE_TAG  = "1.0"
+    SERVICE_NAME = "java-app"
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/username/java-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean package'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'  #docker build -t dockerhubusername/java-app:1.0 .
+      }
+    }
+
+    stage('Push to Docker Hub') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'dockerhub-creds',
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
+          sh '''
+            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+            docker push $IMAGE_NAME:$IMAGE_TAG
+          '''
+        }
+      }
+    }
+
+    stage('Deploy to Docker Swarm') {
+      steps {
+        sh '''
+          docker service ls | grep $SERVICE_NAME && \
+          docker service update --image $IMAGE_NAME:$IMAGE_TAG $SERVICE_NAME || \
+          docker service create \
+            --name $SERVICE_NAME \
+            --replicas 3 \
+            -p 8080:8080 \
+            $IMAGE_NAME:$IMAGE_TAG
+        '''
+      }
+    }
+  }
+}
+```
+
+Push this project to **GitHub
+
+
+
+# PART D — Jenkins Job Execution
+
+Create Jenkins Pipeline Job
+
+* New Item → Pipeline
+* Pipeline script from SCM
+* Git URL: your repo
+* Branch: main
+
+Run Pipeline (Manual)
+
+Click Build Now
+
+Pipeline will:
+
+1. Pull code from GitHub
+2. Build Java app with Maven
+3. Build Docker image
+4. Push image to **Docker Hub**
+5. Deploy service to **Docker Swarm**
+
+# PART E — Verify Deployment
+
+docker service ls
+docker service ps java-app
+
+Access app:
+
+http://192.168.56.10:8080
+
