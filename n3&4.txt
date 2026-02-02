@@ -1,0 +1,370 @@
+Perfect 👍 — I’ll now give you **the SAME clean, correct, exam-safe structure** as we did for Java, but **for Node.js**, covering **both Question 3 and Question 4**.
+
+No `npx create-app`, no confusion, **Deployment + Service first**, Minikube access after.
+Assume **Ubuntu host + Minikube**.
+
+---
+
+# ✅ 3. Maven + Node.js + Kubernetes
+
+## (Manual / On-Demand Jenkins Pipeline)
+
+---
+
+## 🔹 Architecture Flow (remember this)
+
+```
+GitHub → Jenkins → Maven → Node App → Docker Image → Docker Hub → Kubernetes (Minikube)
+```
+
+*(Maven is used only as a wrapper to run npm, as required by the lab.)*
+
+---
+
+## 1️⃣ Environment Assumption
+
+* OS: Ubuntu
+* Tools:
+
+  * Git
+  * Node.js + npm
+  * Maven
+  * Docker
+  * Jenkins
+  * Minikube
+  * kubectl
+
+---
+
+## 2️⃣ Install Required Tools
+
+```bash
+sudo apt update
+sudo apt install -y git maven docker.io jenkins nodejs npm
+sudo usermod -aG docker $USER
+newgrp docker
+sudo systemctl start jenkins
+sudo systemctl enable jenkins
+```
+
+---
+
+## 3️⃣ Create Node Application (NO npx)
+
+```bash
+mkdir node-app
+cd node-app
+npm init -y
+npm install express
+```
+
+### `index.js`
+
+```js
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => {
+  res.send('Node App running on Kubernetes');
+});
+
+app.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
+```
+
+### Ensure `package.json` has:
+
+```json
+"scripts": {
+  "start": "node index.js"
+}
+```
+
+---
+
+## 4️⃣ Add Maven Wrapper (`pom.xml`)
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>node-app</artifactId>
+  <version>1.0</version>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.0</version>
+        <configuration>
+          <executable>npm</executable>
+          <arguments>
+            <argument>install</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+```
+
+---
+
+## 5️⃣ Dockerfile (Node)
+
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["npm","start"]
+```
+
+---
+
+## 6️⃣ Push Code to GitHub
+
+```bash
+git init
+git add .
+git commit -m "Node app for Kubernetes"
+git branch -M main
+git remote add origin https://github.com/USERNAME/node-app.git
+git push -u origin main
+```
+
+---
+
+## 7️⃣ Kubernetes YAML Files
+
+### `deployment.yaml`
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: node-app
+  template:
+    metadata:
+      labels:
+        app: node-app
+    spec:
+      containers:
+      - name: node-app
+        image: dockerhubusername/node-app:1.0
+        ports:
+        - containerPort: 3000
+```
+
+---
+
+### `service.yaml`
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-app
+spec:
+  type: NodePort
+  selector:
+    app: node-app
+  ports:
+    - port: 3000
+      targetPort: 3000
+```
+
+---
+
+## 8️⃣ Jenkins Pipeline (Manual Trigger)
+
+```groovy
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/node-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/USERNAME/node-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean install'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push Docker Image') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        sh '''
+          kubectl apply -f deployment.yaml
+          kubectl apply -f service.yaml
+        '''
+      }
+    }
+  }
+}
+```
+
+👉 Trigger using **Build Now**
+
+---
+
+## 9️⃣ Verify
+
+```bash
+kubectl get pods
+kubectl get svc
+minikube service node-app
+```
+
+---
+
+## 🔍 Pipeline Stage Explanation (Manual)
+
+| Stage        | Purpose                    |
+| ------------ | -------------------------- |
+| Checkout     | Pulls code from GitHub     |
+| Maven Build  | Runs npm install           |
+| Docker Build | Creates Node image         |
+| Push         | Pushes image to Docker Hub |
+| Deploy       | Deploys to Kubernetes      |
+
+---
+
+# ✅ 4. Maven + Node.js + Kubernetes
+
+## (Cron-Based Automated Pipeline)
+
+---
+
+## 🔹 What stays SAME
+
+* Node app
+* Dockerfile
+* Kubernetes YAML
+* Pipeline stages
+
+---
+
+## 🔹 What CHANGES
+
+✅ Jenkins trigger
+
+---
+
+## 1️⃣ Add cron trigger
+
+```groovy
+triggers {
+  cron('H/5 * * * *')
+}
+```
+
+---
+
+## 2️⃣ Final Jenkinsfile (Automated)
+
+```groovy
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/node-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  triggers {
+    cron('H/5 * * * *')
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/USERNAME/node-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean install'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push Docker Image') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        sh '''
+          kubectl apply -f deployment.yaml
+          kubectl apply -f service.yaml
+        '''
+      }
+    }
+  }
+}
+```
+
+---
+
+## 🔁 Difference Summary (Exam-ready)
+
+| Manual Pipeline    | Cron-Based Pipeline     |
+| ------------------ | ----------------------- |
+| Triggered manually | Triggered automatically |
+| On-demand          | Scheduled               |
+| Same stages        | Same stages             |
+
+---
+
+## 🎓 Final Viva One-liner
+
+> In the manual pipeline, Jenkins executes the CI/CD stages on user request, whereas in the cron-based pipeline the same stages are automatically triggered at scheduled intervals using Jenkins cron jobs.
+
+---
+
+If you want next:
+
+* **Exact diagram to draw**
+* **Top 5 viva questions**
+* **Common mistakes & how to answer them confidently**
