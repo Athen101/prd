@@ -1,0 +1,383 @@
+Perfect — now I’ll do this **cleanly, correctly, and exactly following the Minikube reference steps you pasted**, but **for Flask**, and for **both Question 3 & 4**.
+
+No YAML first, **kubectl create / expose**, deployment **after image is on Docker Hub**, Maven used as a **wrapper** (lab requirement), and **only trigger changes between 3 & 4**.
+
+---
+
+# ✅ 3. Maven + Flask + Kubernetes
+
+## (Manual / On-Demand Jenkins Pipeline)
+
+---
+
+## 🔹 Overall Flow (EXAM FLOW – memorize)
+
+```
+GitHub → Jenkins → Maven → Flask App → Docker Image → Docker Hub
+                                                   ↓
+                                       Kubernetes (Minikube)
+```
+
+---
+
+## 1️⃣ Environment Assumption
+
+* OS: Ubuntu
+* Tools:
+
+  * Git
+  * Python3 + pip
+  * Maven
+  * Docker
+  * Jenkins
+  * Minikube
+  * kubectl
+
+---
+
+## 2️⃣ Install Required Tools (Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-pip maven docker.io jenkins
+sudo usermod -aG docker $USER
+newgrp docker
+sudo systemctl start jenkins
+sudo systemctl enable jenkins
+```
+
+---
+
+## 3️⃣ Create Flask Application (NO frameworks, simple)
+
+```bash
+mkdir flask-app
+cd flask-app
+```
+
+### `app.py`
+
+```python
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Flask App running on Kubernetes"
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+```
+
+### `requirements.txt`
+
+```txt
+flask
+```
+
+---
+
+## 4️⃣ Add Maven Wrapper (`pom.xml`)
+
+👉 Maven is **not native to Flask**, but required by lab.
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>flask-app</artifactId>
+  <version>1.0</version>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.0</version>
+        <configuration>
+          <executable>pip3</executable>
+          <arguments>
+            <argument>install</argument>
+            <argument>-r</argument>
+            <argument>requirements.txt</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+```
+
+---
+
+## 5️⃣ Dockerfile (Flask)
+
+```dockerfile
+FROM python:3.10-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY app.py .
+EXPOSE 5000
+CMD ["python3","app.py"]
+```
+
+---
+
+## 6️⃣ Push Code to GitHub
+
+```bash
+git init
+git add .
+git commit -m "Flask app with Maven and Docker"
+git branch -M main
+git remote add origin https://github.com/USERNAME/flask-app.git
+git push -u origin main
+```
+
+---
+
+## 7️⃣ Jenkins Pipeline (Manual / On-Demand)
+
+### `Jenkinsfile`
+
+```groovy
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/flask-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/USERNAME/flask-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean install'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push Docker Image') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+  }
+}
+```
+
+👉 Trigger using **Build Now**
+
+---
+
+## 8️⃣ Kubernetes Deployment (FOLLOWING YOUR REFERENCE STEPS)
+
+### 🔹 Start Minikube
+
+```bash
+minikube start
+```
+
+---
+
+### 🔹 Install & Verify kubectl
+
+```bash
+sudo snap install kubectl --classic
+kubectl version
+kubectl cluster-info
+```
+
+---
+
+### 🔹 Authenticate Docker Hub
+
+(Only if image is **PRIVATE**)
+
+```bash
+eval $(minikube docker-env)
+docker login
+```
+
+---
+
+### 🔹 Create Deployment
+
+```bash
+kubectl create deployment flask-app \
+--image=dockerhubusername/flask-app:1.0
+```
+
+Check:
+
+```bash
+kubectl get pods
+```
+
+---
+
+### 🔹 Expose Application
+
+```bash
+kubectl expose deployment flask-app \
+--type=NodePort \
+--port=5000
+```
+
+Check:
+
+```bash
+kubectl get svc
+```
+
+---
+
+### 🔹 Access in Browser
+
+```bash
+minikube service flask-app
+```
+
+✔ Browser opens
+✔ Flask response shown
+
+---
+
+### 🔹 Delete Deployment & Service
+
+```bash
+kubectl delete deployment flask-app
+kubectl delete service flask-app
+```
+
+---
+
+### 🔹 Stop Minikube
+
+```bash
+minikube stop
+```
+
+---
+
+## 🔍 Pipeline Stage Explanation (Manual)
+
+| Stage        | Explanation                  |
+| ------------ | ---------------------------- |
+| Checkout     | Pulls Flask code from GitHub |
+| Maven Build  | Installs Python dependencies |
+| Docker Build | Creates Flask Docker image   |
+| Push         | Pushes image to Docker Hub   |
+| Deploy       | Done manually via kubectl    |
+
+---
+
+# ✅ 4. Maven + Flask + Kubernetes
+
+## (Cron-Based Automated Pipeline)
+
+---
+
+## 🔹 What stays the SAME
+
+* Flask app
+* Dockerfile
+* Kubernetes deployment commands
+* Docker Hub
+* Pipeline stages
+
+---
+
+## 🔹 What CHANGES
+
+✅ Jenkins trigger only
+
+---
+
+## 1️⃣ Add Cron Trigger
+
+```groovy
+triggers {
+  cron('H/5 * * * *')
+}
+```
+
+---
+
+## 2️⃣ Final Jenkinsfile (Automated)
+
+```groovy
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "dockerhubusername/flask-app"
+    IMAGE_TAG  = "1.0"
+  }
+
+  triggers {
+    cron('H/5 * * * *')
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        git 'https://github.com/USERNAME/flask-app.git'
+      }
+    }
+
+    stage('Build with Maven') {
+      steps {
+        sh 'mvn clean install'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+      }
+    }
+
+    stage('Push Docker Image') {
+      steps {
+        sh 'docker push $IMAGE_NAME:$IMAGE_TAG'
+      }
+    }
+  }
+}
+```
+
+---
+
+## 🔁 Difference Summary (Exam-ready)
+
+| Manual Pipeline    | Cron-Based Pipeline     |
+| ------------------ | ----------------------- |
+| Triggered manually | Triggered automatically |
+| On-demand          | Scheduled execution     |
+| Same stages        | Same stages             |
+| Manual deployment  | Manual deployment       |
+
+---
+
+## 🧠 Perfect Viva One-liner
+
+> In the manual pipeline, Jenkins executes the CI/CD stages on user request, whereas in the cron-based pipeline the same stages are automatically triggered at scheduled intervals. The Docker image is deployed on Kubernetes using Minikube by creating and exposing a deployment.
+
+-
