@@ -22,6 +22,16 @@ npm init -y
 4. Update package.json if below is not present in it:
 "scripts": { "start": "node server.js" }
 
+{
+  "name": "node-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "scripts": {
+    "start": "node server .js"
+  }
+}
 ----------------------------------------------------------------------
 CREATE A DOCKERFILE AND TEST LOCALLY
 1. Create Dockerfile:
