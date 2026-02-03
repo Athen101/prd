@@ -53,6 +53,7 @@ CREATE A GIT REPO AND PUSH THE CODE
 5. SSH KEY GEN AND ADDING IT TO GITHUB
  * ssh-keygen -t ed25519 -C "<your_mail_id>"
  * cat ~/.ssh/id_ed25519.pub (copy this key)
+cat ~/.ssh/id_ed25519.pub
  * goto github.com -> settings -> ssh and gpg keys -> add the key
 6. push the code to github -> git push origin main
 
